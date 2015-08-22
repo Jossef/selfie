@@ -5,6 +5,10 @@ import time
 import logging
 
 
+def ordinal(n):
+    return str(n) + ('th' if 4 <= n <= 20 or 24 <= n <= 30 else ['st', 'nd', 'rd'][n % 10 - 1])
+
+
 class Camera(object):
     def __init__(self):
         self._context = None
@@ -24,7 +28,7 @@ class Camera(object):
         self.close_other_gphoto_processes()
 
         success = False
-        tries = 0
+        tries = 1
 
         while not success:
             try:
@@ -34,7 +38,7 @@ class Camera(object):
                 success = True
             except Exception as ex:
                 logging.debug('failed to open a connection', exc_info=True)
-                if tries > self.max_tries:
+                if tries > 5:
                     raise ex
                 tries += 1
                 time.sleep(0.5)
@@ -86,17 +90,34 @@ class Camera(object):
         self._ensure_has_open_connection()
         logging.debug('capturing an image')
 
+        tries = 1
+        while True:
+            try:
+                logging.debug('{0} attempt to capture an image'.format(ordinal(tries)))
+
+                destination_file_path = self._capture_attempt(output_directory)
+                logging.debug('image downloaded successfully')
+                return destination_file_path
+
+            except Exception as ex:
+                if isinstance(ex, gp.GPhoto2Error):
+                    if ex.code == -105:
+                        logging.warn('maybe the camera went offline?')
+
+                logging.debug('failed to capture an image', exc_info=True)
+                if tries >= 3:
+                    raise ex
+                tries += 1
+                time.sleep(0.5)
+
+    def _capture_attempt(self, output_directory):
         file_path = gp.check_result(gp.gp_camera_capture(self._camera, gp.GP_CAPTURE_IMAGE, self._context))
         logging.debug('camera file path: {0}{1}'.format(file_path.folder, file_path.name))
-
         destination_file_name = datetime.now().strftime('%d-%H-%M-%S.jpg')
-
         destination_file_path = os.path.join(output_directory, destination_file_name)
         logging.debug('downloading image to {0}'.format(destination_file_path))
         camera_file = gp.check_result(gp.gp_camera_file_get(self._camera, file_path.folder, file_path.name, gp.GP_FILE_TYPE_NORMAL, self._context))
         gp.check_result(gp.gp_file_save(camera_file, destination_file_path))
-
-        logging.debug('image downloaded successfully')
         return destination_file_path
 
     def _ensure_has_open_connection(self):
