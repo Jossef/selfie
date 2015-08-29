@@ -1,2 +1,0 @@
-# selfie
-selfie application
